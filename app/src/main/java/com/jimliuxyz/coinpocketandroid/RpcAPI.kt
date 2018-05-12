@@ -1,89 +1,282 @@
 package com.jimliuxyz.coinpocketandroid
 
-import com.google.gson.GsonBuilder
+import android.content.Context
+import com.jimliuxyz.maprunner.utils.doNetwork
+import com.jimliuxyz.maprunner.utils.getPref
+import com.jimliuxyz.maprunner.utils.setPref
 import io.socket.client.IO
 import io.socket.client.Socket
+import io.socket.emitter.Emitter
 import io.socket.engineio.client.transports.WebSocket
 
+private typealias RpcHandler = (jsonrpc: JsonRPC) -> Unit
 
-class RpcAPI private constructor() {
+class RpcAPI private constructor(val context: Context) {
     companion object {
-        private lateinit var _instance: RpcAPI
+        val ERR_LOGIN_FAILED = 100
+        val ERR_API_NOT_READY = 101
+        val ERR_JWT_EXPIRED = 102
+
+        var LOGED_NONE = 0  //not even connected
+        var LOGED_OKAY = 1
+        var LOGED_FAIL = -1
+
+
+        private var _instance = RpcAPI(MyApplication.instance)
         fun getInstance(): RpcAPI {
-            _instance = RpcAPI()
             return _instance
         }
     }
 
-    lateinit var socket: Socket
+    private var mSocket: Socket? = null
+    private var mToken: String? = null
+    private var logged = LOGED_NONE
 
     init {
-            createConnection()
+        mToken = context.getPref(R.string.jwtToken, "")
+//        createConnection()
     }
 
-    private fun createConnection() {
-        println("---------")
-
-//        IO.setDefaultHostnameVerifier(object : HostnameVerifier {
-//            override fun verify(hostname: String, session: SSLSession): Boolean {
-//                //TODO: Make this more restrictive
-//                return true
-//            }
-//        })
-
-        val opts = IO.Options()
-        opts.transports = arrayOf(WebSocket.NAME)
-
-        //seeu: do not use 'localhost' or '127.0.0.1' to reach your local server (it'll loop inside android device)
-        socket = IO.socket("http://192.168.1.101:8081", opts)
-
-        socket.on(Socket.EVENT_CONNECT, io.socket.emitter.Emitter.Listener {
-//            socket.disconnect()
-            println("EVENT_CONNECT" + it)
-            login()
-        })
-        socket.on(Socket.EVENT_DISCONNECT, io.socket.emitter.Emitter.Listener {
-            println("EVENT_DISCONNECT")
-        })
-
-        socket.on(Socket.EVENT_ERROR, io.socket.emitter.Emitter.Listener {
-            println("EVENT_ERROR")
-        })
-
-        socket.on(Socket.EVENT_CONNECT_ERROR, io.socket.emitter.Emitter.Listener {
-            println("EVENT_CONNECT_ERROR"+it[0])
-        })
-
-        socket.on(Socket.EVENT_CONNECT_TIMEOUT, io.socket.emitter.Emitter.Listener {
-            println("EVENT_CONNECT_TIMEOUT")
-        })
-
-        socket.on("jsonrpc", io.socket.emitter.Emitter.Listener {
-            println("got !!!" + it[0])
-        })
-        socket.connect()
-        println("---------")
-
+    interface EventListener {
+        fun loginStateChanged(logged: Int)
+        fun takeReceipt(rpc: JsonRPC)
     }
 
-    class JsonRPC(var method: String, var params: Map<String, String>) {
-        var jsonrpc = "2.0"
-        var id = Math.round(Math.random() * Long.MAX_VALUE)
+    private var eventListener: EventListener? = null
+    fun setEventListener(listener: EventListener?) {
+        eventListener = listener
     }
 
-
-    private fun login() {
-
-        var jrpc = JsonRPC("login", mapOf("name" to "jim6", "pwd" to ""))
-
-        var gson = GsonBuilder().create()
-
-        var jsonStr = gson.toJson(jrpc)
-
-        println("jsonrpc ${jsonStr}")
-
-        socket.emit("jsonrpc", jsonStr)
+    private fun changeLoginState(logged: Int) {
+        this.logged = logged
+        eventListener?.loginStateChanged(logged)
     }
 
+    fun getLoginState(): Int {
+        return logged
+    }
+
+    private var service: SocketService? = null
+
+    private inner class SocketService(val name: String?, val pwd: String?, var token: String?) {
+
+        var firsttry = true
+        var everlogged = false
+        lateinit var socket: Socket
+
+        fun conn(result: RpcHandler) {
+
+            val opts = IO.Options()
+            opts.transports = arrayOf(WebSocket.NAME)
+
+            //seeu: do not use 'localhost' or '127.0.0.1' to reach your local server (it'll loop inside android device)
+            socket = IO.socket("http://192.168.1.101:8081", opts)
+            socket.apply {
+
+                on(Socket.EVENT_CONNECT, Emitter.Listener {
+                    println("EVENT_CONNECT" + it)
+
+                    var jrpc: JsonRPC
+                    if (!firsttry || name.isNullOrBlank())
+                        jrpc = JsonRPC.createMethod("login", mapOf("token" to token))
+                    else
+                        jrpc = JsonRPC.createMethod("login", mapOf("name" to name, "pwd" to pwd))
+
+                    //bind result handler
+                    pushResultHandler(jrpc) { rpc ->
+
+                        Thread.sleep(2000)
+                        if (rpc.isError()) {
+                            if (rpc.getErrCode() == ERR_JWT_EXPIRED || rpc.getErrCode() == ERR_LOGIN_FAILED) {
+                                setToken(null)
+                                changeLoginState(LOGED_FAIL)
+                            }
+                            if (firsttry) {
+                                socket.disconnect()
+                            }
+                        } else if (rpc.isResult()) {
+                            everlogged = true
+                            setToken(rpc.result!!.getString("token"))
+                            token = mToken
+                            changeLoginState(LOGED_OKAY)
+                            watchEvent()
+                        }
+                        if (firsttry)
+                            result(rpc)
+                        firsttry = false
+                    }
+                    socket.emit("jsonrpc", jrpc.toJsonString())
+                })
+
+                var onSocketException = { errmsg: String ->
+                    println(errmsg)
+
+                    if (firsttry) {
+                        firsttry = false
+                        result(JsonRPC.createError(0, errmsg))
+                        socket.disconnect()
+                        socket.close()
+                    } else if (everlogged)
+                        notifyErr(errmsg)
+                    false
+                }
+
+                on(Socket.EVENT_DISCONNECT, Emitter.Listener {
+                    onSocketException("連線中斷")
+                })
+
+                on(Socket.EVENT_ERROR, Emitter.Listener {
+                    onSocketException("連線錯誤1")
+                })
+
+                on(Socket.EVENT_CONNECT_ERROR, Emitter.Listener {
+                    onSocketException("連線錯誤2")
+                })
+
+                on(Socket.EVENT_CONNECT_TIMEOUT, Emitter.Listener {
+                    onSocketException("連線逾時")
+                })
+
+                on("jsonrpc", Emitter.Listener {
+                    val json = it[0] as String
+            println(json)
+
+                    var rpc = JsonRPC.fromJsonString(json)
+                    if (rpc.isMethod()) {
+                        when (rpc.method!!) {
+                            "takeReceipt" -> {
+                                eventListener?.takeReceipt(rpc)
+                            }
+                        }
+
+                    } else if (rpc.isResult() || rpc.isError()) {
+                        popResultHandler(rpc)?.let { handler ->
+                            handler(rpc)
+                        }
+                    }
+                })
+                connect()
+            }
+        }
+
+        private val map = LinkedHashMap<String, RpcHandler>()
+        private fun pushResultHandler(rpc: JsonRPC, func: RpcHandler) {
+            map.put(rpc.id, func)
+        }
+
+        private fun popResultHandler(rpc: JsonRPC): RpcHandler? {
+            return map.remove(rpc.id)
+        }
+
+        private fun notifyErr(msg: String) {
+            var jrpc = JsonRPC.createError(0, msg)
+
+            for (entry in map) {
+                entry.value(jrpc)
+            }
+            map.clear()
+        }
+
+        private fun watchEvent() {
+            emit(JsonRPC.createMethod("watchEvent"))
+        }
+
+        fun disconnect(){
+            socket.disconnect()
+            socket.close()
+        }
+
+        fun emit(jsonrpc: JsonRPC, handler: RpcHandler? = null) {
+            handler?.also {
+                pushResultHandler(jsonrpc, handler)
+            }
+            socket.emit("jsonrpc", jsonrpc.toJsonString())
+        }
+    }
+
+    private fun setToken(token: String?) {
+        mToken = token
+        context.setPref(R.string.jwtToken, token ?: "")
+    }
+
+    fun connWithToken(handler: RpcHandler) {
+        var service = SocketService(null, null, mToken)
+
+        service.conn() { rpc ->
+            if (rpc.isResult()) {
+                this.service = service
+            }
+            handler(rpc)
+        }
+    }
+
+    fun conn(name: String?, pwd: String?, handler: RpcHandler) {
+        var service = SocketService(name, pwd, null)
+
+        service.conn() { rpc ->
+            if (rpc.isResult()) {
+                this.service = service
+            }
+            handler(rpc)
+        }
+    }
+
+    fun disconn() {
+        service?.let {
+            it.disconnect()
+            this.service = null
+        }
+    }
+
+    val ERR_NOT_LOGIN_SERVICE = "尚未登入伺服器"
+
+    fun getBalance(handler: RpcHandler) {
+        service?.apply {
+            val jrpc = JsonRPC.createMethod("balance")
+            emit(jrpc, handler)
+        } ?: doNetwork {
+            handler(JsonRPC.createError(0, ERR_NOT_LOGIN_SERVICE))
+        }
+    }
+
+    fun deposit(type: Int, amount: Long, handler: RpcHandler) {
+        service?.apply {
+            val jrpc = JsonRPC.createMethod("deposit",
+                    mapOf<String, Any?>("type" to type, "amount" to amount))
+            emit(jrpc, handler)
+        } ?: doNetwork {
+            handler(JsonRPC.createError(0, ERR_NOT_LOGIN_SERVICE))
+        }
+    }
+
+    fun withdraw(type: Int, amount: Long, handler: RpcHandler) {
+        service?.apply {
+            val jrpc = JsonRPC.createMethod("withdraw",
+                    mapOf<String, Any?>("type" to type, "amount" to amount))
+            emit(jrpc, handler)
+        } ?: doNetwork {
+            handler(JsonRPC.createError(0, ERR_NOT_LOGIN_SERVICE))
+        }
+    }
+
+    fun transfer(type: Int, amount: Long, receiver: String, handler: RpcHandler) {
+        service?.apply {
+            val jrpc = JsonRPC.createMethod("transfer",
+                    mapOf<String, Any?>("type" to type, "amount" to amount, "receiver" to receiver))
+            emit(jrpc, handler)
+        } ?: doNetwork {
+            handler(JsonRPC.createError(0, ERR_NOT_LOGIN_SERVICE))
+        }
+    }
+
+    fun listReceipt(handler: RpcHandler) {
+        service?.apply {
+            val jrpc = JsonRPC.createMethod("listReceipt")
+            emit(jrpc, handler)
+        } ?: doNetwork {
+            handler(JsonRPC.createError(0, ERR_NOT_LOGIN_SERVICE))
+        }
+    }
 
 }
+

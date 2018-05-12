@@ -6,6 +6,7 @@ import android.animation.AnimatorListenerAdapter
 import android.annotation.TargetApi
 import android.app.LoaderManager.LoaderCallbacks
 import android.content.CursorLoader
+import android.content.Intent
 import android.content.Loader
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -15,14 +16,19 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.support.design.widget.Snackbar
+import android.support.v7.app.AlertDialog
 import android.support.v7.app.AppCompatActivity
 import android.text.TextUtils
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
 import android.widget.TextView
+import android.widget.Toast
+import com.jimliuxyz.maprunner.utils.doMain
 import kotlinx.android.synthetic.main.activity_login.*
 import java.util.*
+
+
 
 /**
  * A login screen that offers login via email/password.
@@ -32,6 +38,7 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
      * Keep track of the login task to ensure we can cancel it if requested.
      */
     private var mAuthTask: UserLoginTask? = null
+    private var rpcAPI = RpcAPI.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,9 +53,12 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
             false
         })
 
-        email_sign_in_button.setOnClickListener { attemptLogin() }
+        email_sign_in_button.setOnClickListener {
+//            it.isEnabled = false
+            attemptLogin()
+//            it.isEnabled = true
+        }
 
-        var rpc = RpcAPI.getInstance()
     }
 
     private fun populateAutoComplete() {
@@ -135,20 +145,54 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
         } else {
             // Show a progress spinner, and kick off a background task to
             // perform the user login attempt.
-            showProgress(true)
-            mAuthTask = UserLoginTask(emailStr, passwordStr)
-            mAuthTask!!.execute(null as Void?)
+//            showProgress(true)
+//            mAuthTask = UserLoginTask(emailStr, passwordStr)
+//            mAuthTask!!.execute(null as Void?)
+
+            var dialog = AlertDialog.Builder(this@LoginActivity)
+                    .setView(R.layout.loading_layout)
+                    .setCancelable(false)
+                    .create()
+
+            dialog.getWindow().setWindowAnimations(android.R.style.Animation_Translucent)
+            dialog.show()
+
+            email_sign_in_button.isEnabled = false
+            rpcAPI.conn(emailStr, passwordStr){rpc->
+                println("rpc : " + rpc.toJsonString())
+                doMain {
+
+                    dialog.dismiss()
+                    if (rpc.isResult()){
+                        finish()
+
+                        var intent = Intent(applicationContext, MainActivity::class.java)
+//                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+//                        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                        startActivity(intent)
+                    }
+                    else{
+                        showProgress(false)
+                        Toast.makeText(applicationContext, rpc.error!!.getString("message"), Toast.LENGTH_LONG).show()
+                        email_sign_in_button.isEnabled = true
+                    }
+                }
+            }
         }
     }
 
     private fun isEmailValid(email: String): Boolean {
         //TODO: Replace this with your own logic
-        return email.contains("@")
+//        return email.contains("@")
+        return true
     }
 
     private fun isPasswordValid(password: String): Boolean {
         //TODO: Replace this with your own logic
-        return password.length > 4
+//        return password.length > 4
+        return true
     }
 
     /**
