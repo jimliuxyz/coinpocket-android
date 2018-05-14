@@ -17,8 +17,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.jimliuxyz.maprunner.utils.doMain
+import com.jimliuxyz.maprunner.utils.getPref
 import kotlinx.android.synthetic.main.activity_main.*
-
 
 
 class MainActivity : AppCompatActivity(), MainContract.View {
@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity(), MainContract.View {
     private lateinit var txAmount: TextView
     private lateinit var txAccount: TextView
 
-    private val presenter = MainPresenter()
+    private lateinit var presenter: MainPresenter
     private var balance: List<String>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity(), MainContract.View {
         txAmount = findViewById(R.id.txAmount)
         txAccount = findViewById(R.id.txAccount)
 
-        dtypeSpinner.onItemSelectedListener = object: AdapterView.OnItemSelectedListener{
+        dtypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: AdapterView<*>?) {
             }
 
@@ -74,7 +74,15 @@ class MainActivity : AppCompatActivity(), MainContract.View {
             setItemAnimator(defaultItemAnimator)
         }
 
+        presenter = MainPresenter()
         presenter.start(this)
+
+        supportActionBar?.setTitle(this.getPref("def_username", ""))
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        presenter.stop()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -95,7 +103,11 @@ class MainActivity : AppCompatActivity(), MainContract.View {
 
     var dialog: AlertDialog? = null
 
-    override fun showDialog(){
+    override fun showDialog() {
+        findViewById<View>(R.id.btnDeposit).isEnabled = false
+        findViewById<View>(R.id.btnWithdraw).isEnabled = false
+        findViewById<View>(R.id.btnTransfer).isEnabled = false
+
         val factory = LayoutInflater.from(this)
         val view = factory.inflate(R.layout.loading_layout, null)
         view.findViewById<TextView>(R.id.loading_msg)!!.setText("交易進行中")
@@ -111,38 +123,39 @@ class MainActivity : AppCompatActivity(), MainContract.View {
         }
     }
 
-    override fun hideDialog(){
-        dialog?.apply {
-            dismiss()
-        }
+    override fun hideDialog() {
+        dialog!!.dismiss()
+
+        findViewById<View>(R.id.btnDeposit).isEnabled = true
+        findViewById<View>(R.id.btnWithdraw).isEnabled = true
+        findViewById<View>(R.id.btnTransfer).isEnabled = true
     }
 
-    private fun getDtype():Int{
+    private fun getDtype(): Int {
         return dtypeSpinner.selectedItemPosition
     }
 
-    private fun getTxAmount(): Long{
+    private fun getTxAmount(): Long {
         return txAmount.text.toString().toDouble().toLong()
     }
 
-    private fun getTxAccount(): String{
+    private fun getTxAccount(): String {
         return txAccount.text.toString()
     }
 
-    fun deposit(view: View){
-        view.isEnabled = false
+    fun deposit(view: View) {
+        showDialog()
         presenter.deposit(getDtype(), getTxAmount())
-        view.isEnabled = true
     }
-    fun withdraw(view: View){
-        view.isEnabled = false
+
+    fun withdraw(view: View) {
+        showDialog()
         presenter.withdraw(getDtype(), getTxAmount())
-        view.isEnabled = true
     }
-    fun transfer(view: View){
-        view.isEnabled = false
+
+    fun transfer(view: View) {
+        showDialog()
         presenter.transfer(getDtype(), getTxAmount(), getTxAccount())
-        view.isEnabled = true
     }
 
     override fun updateBalance(list: List<String>) {

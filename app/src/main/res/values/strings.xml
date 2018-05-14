@@ -13,8 +13,12 @@
     <string name="permission_rationale">"Contacts permissions are needed for providing email
         completions."
     </string>
-    <string name="jwtToken">jwtToken</string>
+    <string name="pref_jwt_token">jwt_token</string>
+    <string name="pref_server_ip">server_ip</string>
+    <string name="pref_server_port">server_port</string>
     <string name="title_activity_main">MainActivity</string>
+    <string name="IP_AWS">ec2-18-221-14-16.us-east-2.compute.amazonaws.com</string>
+    <string name="IP_LOCAL">192.168.1.101</string>
     <string-array name="DollarType">
         <item>TWD</item>
         <item>USD</item>

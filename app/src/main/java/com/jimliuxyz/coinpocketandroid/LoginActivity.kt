@@ -14,17 +14,26 @@ import android.net.Uri
 import android.os.AsyncTask
 import android.os.Build
 import android.os.Bundle
+import android.preference.PreferenceManager
 import android.provider.ContactsContract
 import android.support.design.widget.Snackbar
 import android.support.v7.app.AlertDialog
 import android.support.v7.app.AppCompatActivity
 import android.text.TextUtils
+import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import com.jimliuxyz.coinpocketandroid.RPC.RpcAPI
+import com.jimliuxyz.coinpocketandroid.RPC.getString
 import com.jimliuxyz.maprunner.utils.doMain
+import com.jimliuxyz.maprunner.utils.getPref
+import com.jimliuxyz.maprunner.utils.setPref
 import kotlinx.android.synthetic.main.activity_login.*
 import java.util.*
 
@@ -42,6 +51,7 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initPreference()
         setContentView(R.layout.activity_login)
         // Set up the login form.
         populateAutoComplete()
@@ -59,6 +69,63 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
 //            it.isEnabled = true
         }
 
+        email.setText(this.getPref("def_username", "guest"))
+
+    }
+
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        // Inflate the menu; this adds items to the action bar if it is present.
+        menuInflater.inflate(R.menu.login_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_settings -> {
+                showCfgServerDialog()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun initPreference(){
+        PreferenceManager.setDefaultValues(this, R.xml.preference, false)
+    }
+
+    private fun showCfgServerDialog() {
+
+        var ip = this.getPref(R.string.pref_server_ip, "")
+        var port = this.getPref(R.string.pref_server_port, "")
+
+        val factory = LayoutInflater.from(this)
+        val view = factory.inflate(R.layout.ipport_layout, null)
+
+        val tvIp = view.findViewById<TextView>(R.id.tvIp)!!.apply { setText(ip) }
+        val tvPort = view.findViewById<TextView>(R.id.tvPort)!!.apply { setText(port) }
+
+        view.findViewById<Button>(R.id.btnAws).setOnClickListener {
+            tvIp.setText(R.string.IP_AWS)
+        }
+        view.findViewById<Button>(R.id.btnLocal).setOnClickListener {
+            tvIp.setText(R.string.IP_LOCAL)
+        }
+
+        var dialog = AlertDialog.Builder(this@LoginActivity)
+                .setView(view)
+                .setCancelable(false)
+                .setPositiveButton("確定", {dialog, id->
+                    this.setPref(R.string.pref_server_ip, tvIp.text.toString())
+                    this.setPref(R.string.pref_server_port, tvPort.text)
+                })
+                .setNegativeButton("取消", {dialog, id->
+
+                })
+                .create()
+
+        dialog.getWindow().setWindowAnimations(android.R.style.Animation_Translucent)
+        dialog.show()
     }
 
     private fun populateAutoComplete() {
@@ -149,17 +216,23 @@ class LoginActivity : AppCompatActivity(), LoaderCallbacks<Cursor> {
 //            mAuthTask = UserLoginTask(emailStr, passwordStr)
 //            mAuthTask!!.execute(null as Void?)
 
+            val factory = LayoutInflater.from(this)
+            val view = factory.inflate(R.layout.loading_layout, null)
+            view.findViewById<TextView>(R.id.loading_msg)!!.setText("登入中")
+
             var dialog = AlertDialog.Builder(this@LoginActivity)
-                    .setView(R.layout.loading_layout)
+                    .setView(view)
                     .setCancelable(false)
                     .create()
 
             dialog.getWindow().setWindowAnimations(android.R.style.Animation_Translucent)
             dialog.show()
 
+            this.setPref("def_username", emailStr)
+
             email_sign_in_button.isEnabled = false
             rpcAPI.conn(emailStr, passwordStr){rpc->
-                println("rpc : " + rpc.toJsonString())
+
                 doMain {
 
                     dialog.dismiss()

@@ -17,6 +17,7 @@ interface MainContract {
     interface Presenter {
 
         fun start(view: View)
+        fun stop()
 
         fun logout()
 

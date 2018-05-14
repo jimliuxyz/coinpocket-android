@@ -89,6 +89,22 @@ inline fun <T : Context, reified R> T.getPref(strResId: Int, def: R): R {
     return value!!
 }
 
+inline fun <T : Context, reified R> T.setPref(key: String, value: R) {
+
+    var preference = PreferenceManager.getDefaultSharedPreferences(this).edit()
+
+    when (value) {
+        is Boolean -> preference.putBoolean(key, value)
+        is String -> preference.putString(key, value)
+        is Float -> preference.putFloat(key, value)
+        is Int -> preference.putInt(key, value)
+        is Long -> preference.putLong(key, value)
+        else -> null
+    }
+    preference.commit()
+}
+
+
 inline fun <T : Context, reified R> T.setPref(strResId: Int, value: R) {
 
     var key = resources.getString(strResId)

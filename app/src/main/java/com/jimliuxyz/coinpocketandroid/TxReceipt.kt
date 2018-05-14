@@ -1,6 +1,7 @@
 package com.jimliuxyz.coinpocketandroid
 
 import com.google.gson.GsonBuilder
+import com.jimliuxyz.coinpocketandroid.RPC.JsonRPC
 import java.util.*
 
 data class TxReceipt(var txhash:String="", var sender:String="", var dtypes:String="", var action:String="", var amount:String="", var receiver:String="") {

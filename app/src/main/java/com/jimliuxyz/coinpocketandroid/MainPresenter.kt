@@ -1,5 +1,9 @@
 package com.jimliuxyz.coinpocketandroid
 
+import com.jimliuxyz.coinpocketandroid.RPC.JsonRPC
+import com.jimliuxyz.coinpocketandroid.RPC.RpcAPI
+import com.jimliuxyz.coinpocketandroid.RPC.getList
+import com.jimliuxyz.coinpocketandroid.RPC.getMap
 import com.jimliuxyz.maprunner.utils.doMain
 
 class MainPresenter : MainContract.Presenter {
@@ -47,9 +51,24 @@ class MainPresenter : MainContract.Presenter {
         }
     }
 
+    var loggout = false
+    override fun stop() {
+        //todo: 預定在activity destroy時呼叫stop並進行disconnt 但發現不同版本的sdk上執行順序不同
+        //一種是登出時呼叫logout隨後finish()->destroy() 回到login畫面
+        //另一種在finish()後不會destroy 而在再次登入進入main時才destroy上一次的 造成登入隨後又登出
+        //結論:rpcAPI不該做成singleton 造成狀態共用
+        if (!loggout){
+            rpcAPI.setEventListener(null)
+            rpcAPI.disconn()
+        }
+        loggout = true
+    }
+
     override fun logout() {
-        rpcAPI.disconn()
         view.backToLogin()
+        if (!loggout)
+            rpcAPI.disconn()
+        loggout = true
     }
 
     override fun updateBalance() {
@@ -90,8 +109,7 @@ class MainPresenter : MainContract.Presenter {
     }
 
     override fun deposit(dtype: Int, amount: Long) {
-
-        view.showDialog()
+        updateBalance()
 
         rpcAPI.deposit(dtype, amount) { rpc ->
             Thread.sleep(500)
@@ -107,14 +125,10 @@ class MainPresenter : MainContract.Presenter {
                 }
             }
         }
-
-//        rpcAPI.login("jim7", "", null){
-//            println("login result" + it.toJsonString())
-//        }
     }
 
     override fun withdraw(dtype: Int, txAmount: Long) {
-        view.showDialog()
+        updateBalance()
 
         rpcAPI.withdraw(dtype, txAmount) { rpc ->
             Thread.sleep(500)
@@ -133,7 +147,7 @@ class MainPresenter : MainContract.Presenter {
     }
 
     override fun transfer(dtype: Int, txAmount: Long, txAccount: String) {
-        view.showDialog()
+        updateBalance()
 
         rpcAPI.transfer(dtype, txAmount, txAccount) { rpc ->
             Thread.sleep(500)
