@@ -3,4 +3,4 @@
 
 [Service Gateway](https://github.com/jimliuxyz/coinpocket)
 
-<img src="./Screenshot_1526361423.png" width="400">
+<img src="./Screenshot_1526361423.png" width="300">
